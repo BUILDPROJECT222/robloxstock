@@ -1,24 +1,14 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Blox Stock Exchange 3D</title>
-  <meta name="description" content="A 3D (Three.js) stock exchange simulation game inspired by Roblox Stock Exchange 2.">
-  <link rel="stylesheet" href="css/style.css">
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-      }
-    }
-  </script>
-</head>
-<body>
-  <div id="world"></div>
-  <div id="ui"></div>
-  <noscript>This game requires JavaScript.</noscript>
-  <script type="module" src="js/main.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blox Stock Exchange 3D</title>
+    <meta name="description" content="A 3D (Three.js + React) stock exchange simulation game inspired by Roblox Stock Exchange 2." />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>This game requires JavaScript.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

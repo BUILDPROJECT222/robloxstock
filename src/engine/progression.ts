@@ -1,14 +1,26 @@
 // Level/XP, unlocks, goals (Rewards), redeem codes, Vault, Rebirth, P&L calendar, leaderboard.
 
-import { UNLOCKS, LEVERAGE_TIERS, ASSET_CLASSES, CODES, REBIRTH_BASE, xpForLevel } from './config.js';
-import { gauss, rand, fmtMoney } from './util.js';
+import { UNLOCKS, LEVERAGE_TIERS, ASSET_CLASSES, CODES, REBIRTH_BASE, xpForLevel, type UnlockKey } from './config';
+import { gauss, rand, fmtMoney } from './util';
+import type { AssetClass, Result } from './types';
+import type { Game } from './game';
 
 const NPC_NAMES = [
   'xX_DiamondHands_Xx', 'NoobTrader2016', 'StonksOnlyGoUp', 'Bacon_Whale', 'PaperHandsPete',
   'BuildermanFan', 'GuestTrader404', 'OofCapital', 'TycoonTina', 'BearGang_Bob', 'MoonBoi_99',
 ];
 
-export const GOALS = [
+export interface Goal {
+  id: string;
+  label: string;
+  desc: string;
+  reward: number;
+  check: (g: Game) => boolean;
+}
+
+export type GoalState = 'ready' | 'claimed' | 'locked';
+
+export const GOALS: Goal[] = [
   { id: 'first_trade', label: 'First Trade', desc: 'Open any position', reward: 250, check: (g) => g.portfolio.stats.opens >= 1 },
   { id: 'first_close', label: 'First Close', desc: 'Close your first position', reward: 750, check: (g) => g.portfolio.stats.closes >= 1 },
   { id: 'green', label: 'In the Green!', desc: 'Close a trade in profit', reward: 500, check: (g) => g.portfolio.stats.wins >= 1 },
@@ -24,30 +36,41 @@ export const GOALS = [
   { id: 'nw1m', label: 'Millionaire', desc: 'Reach a $1,000,000 net worth', reward: 100000, check: (g) => g.netWorth() >= 1e6 },
 ];
 
+export interface Npc {
+  name: string;
+  nw: number;
+  skill: number;
+}
+
+export interface LeaderRow {
+  name: string;
+  nw: number;
+  me?: boolean;
+  rebirths?: number;
+}
+
 export class Progression {
-  constructor(game) {
-    this.game = game;
-    this.level = 1;
-    this.xp = 0;
-    this.rebirths = 0;
-    this.claimed = [];
-    this.redeemed = [];
-    this.vault = 0;
-    this.calendar = {};
-    this.dayStartNW = null;
-    this.external = 0;
-    this.npcs = NPC_NAMES.map((name) => ({ name, nw: Math.round(Math.exp(rand(Math.log(4000), Math.log(4e6)))), skill: rand(-0.0002, 0.0008) }));
-  }
+  level = 1;
+  xp = 0;
+  rebirths = 0;
+  claimed: string[] = [];
+  redeemed: string[] = [];
+  vault = 0;
+  calendar: Record<number, number> = {};
+  dayStartNW: number | null = null;
+  external = 0;
+  npcs: Npc[] = NPC_NAMES.map((name) => ({ name, nw: Math.round(Math.exp(rand(Math.log(4000), Math.log(4e6)))), skill: rand(-0.0002, 0.0008) }));
+
+  constructor(private game: Game) {}
 
   get xpMult() { return 1 + 0.5 * this.rebirths; }
-  unlockLevel(key) { return UNLOCKS.find((u) => u.key === key)?.level ?? 99; }
-  has(key) { return this.level >= this.unlockLevel(key); }
-  canTrade(cls) { return this.has(ASSET_CLASSES[cls].unlock); }
-  maxLeverage() { return LEVERAGE_TIERS.filter((t) => this.level >= t.level).at(-1).x; }
-  leverageTiers() { return LEVERAGE_TIERS; }
+  unlockLevel(key: UnlockKey) { return UNLOCKS.find((u) => u.key === key)?.level ?? 99; }
+  has(key: UnlockKey) { return this.level >= this.unlockLevel(key); }
+  canTrade(cls: AssetClass) { return this.has(ASSET_CLASSES[cls].unlock); }
+  maxLeverage() { return LEVERAGE_TIERS.filter((t) => this.level >= t.level).at(-1)!.x; }
   xpNeeded() { return xpForLevel(this.level); }
 
-  addXP(n) {
+  addXP(n: number) {
     this.xp += n * this.xpMult;
     while (this.xp >= this.xpNeeded() && this.level < 50) {
       this.xp -= this.xpNeeded();
@@ -58,18 +81,18 @@ export class Progression {
   }
 
   // ---- outside money (not from trading) is tracked separately for P&L ----
-  grant(amount, why) {
+  grant(amount: number, why: string) {
     this.game.portfolio.cash += amount;
     this.external += amount;
     this.game.notify(`💰 +${fmtMoney(amount)} — ${why}`, 'good');
   }
 
-  goalState(goal) {
+  goalState(goal: Goal): GoalState {
     if (this.claimed.includes(goal.id)) return 'claimed';
     return goal.check(this.game) ? 'ready' : 'locked';
   }
 
-  claim(id) {
+  claim(id: string) {
     const goal = GOALS.find((g) => g.id === id);
     if (!goal || this.goalState(goal) !== 'ready') return;
     this.claimed.push(id);
@@ -79,7 +102,7 @@ export class Progression {
 
   readyGoals() { return GOALS.filter((g) => this.goalState(g) === 'ready').length; }
 
-  redeem(raw) {
+  redeem(raw: string): Result {
     const code = String(raw || '').trim().toUpperCase();
     if (!CODES[code]) return { ok: false, msg: 'Invalid code' };
     if (this.redeemed.includes(code)) return { ok: false, msg: 'Code already redeemed' };
@@ -90,13 +113,13 @@ export class Progression {
 
   // ---- Vault ----
   vaultRate() { return (this.has('vaultpro') ? 0.01 : 0.005) * (1 + 0.25 * this.rebirths); }
-  deposit(x) {
+  deposit(x: number) {
     x = Math.min(x, this.game.portfolio.cash);
     if (!(x > 0)) return;
     this.game.portfolio.cash -= x;
     this.vault += x;
   }
-  withdraw(x) {
+  withdraw(x: number) {
     x = Math.min(x, this.vault);
     if (!(x > 0)) return;
     this.vault -= x;
@@ -113,7 +136,7 @@ export class Progression {
     if (this.dayStartNW == null) return 0;
     return this.game.netWorth() - this.dayStartNW - this.external;
   }
-  startDay(prevDay) {
+  startDay(prevDay: number | null) {
     if (this.dayStartNW != null && prevDay != null) this.calendar[prevDay] = this.todayPnl();
     this.dayStartNW = this.game.netWorth();
     this.external = 0;
@@ -124,11 +147,11 @@ export class Progression {
   canRebirth() { return this.game.netWorth() >= this.rebirthReq(); }
 
   // ---- Leaderboard ----
-  tickNpcs(marketRet) {
+  tickNpcs(marketRet: number) {
     for (const n of this.npcs) n.nw = Math.max(100, n.nw * Math.exp(n.skill / 5 + marketRet * 1.5 + gauss() * 0.0015));
   }
-  leaderboard() {
-    const me = { name: 'You', nw: this.game.netWorth(), me: true, rebirths: this.rebirths };
+  leaderboard(): LeaderRow[] {
+    const me: LeaderRow = { name: 'You', nw: this.game.netWorth(), me: true, rebirths: this.rebirths };
     return [...this.npcs, me].sort((a, b) => b.nw - a.nw);
   }
 
@@ -136,5 +159,5 @@ export class Progression {
     const { level, xp, rebirths, claimed, redeemed, vault, calendar, dayStartNW, external, npcs } = this;
     return { level, xp, rebirths, claimed, redeemed, vault, calendar, dayStartNW, external, npcs };
   }
-  restore(s) { Object.assign(this, s); }
+  restore(s: ReturnType<Progression['serialize']>) { Object.assign(this, s); }
 }

@@ -1,19 +1,22 @@
 # 📈 Blox Stock Exchange 3D
 
 Game simulasi bursa saham **3D berbasis Three.js** yang terinspirasi dari game Roblox **Roblox Stock Exchange 2 (RSE 2)** buatan Summit Productions.
-Tanpa build step: cukup HTML + ES modules, dan Three.js dimuat dari CDN.
+Dibangun dengan Vite + React + TypeScript; dunia 3D memakai Three.js, dan wallet Solana sudah disiapkan untuk mode on-chain.
 
 ## ▶️ Cara menjalankan
 
-ES modules tidak bisa dibuka lewat `file://`, jadi jalankan server statis apa saja dari folder repo:
+Dibangun dengan **Vite + React + TypeScript + Three.js** (wallet Solana sudah disiapkan).
 
 ```bash
-python3 -m http.server 8000
-# atau
-npx serve .
+npm install
+npm run dev        # server development di http://localhost:5173
+npm run build      # build produksi ke folder dist/ (static, bisa di-host di mana saja)
+npm run preview    # coba hasil build
+npm run typecheck  # cek TypeScript
 ```
 
-Lalu buka `http://localhost:8000`. Bisa juga langsung di-deploy ke GitHub Pages, Netlify, Cloudflare Pages, dll.
+Isi folder `dist/` bisa langsung di-deploy ke GitHub Pages, Netlify, Vercel, Cloudflare Pages, dll.
+RPC Solana bisa diganti lewat env `VITE_SOLANA_RPC` (default: devnet).
 
 Kontrol: **drag** = putar kamera · **scroll** = zoom · **Spasi** = pause · **F** = fokus ke chart · **R** = reset kamera.
 Klik baris watchlist, ubin heatmap 3D, atau koin di *Pulse Pit* untuk memilih aset.
@@ -61,16 +64,22 @@ Sumber: [RSE 2 Guide](https://rse.beyondaverage.io/), [Roblox Stock Exchange 2 C
 ## 🗂️ Struktur
 
 ```
-index.html          import map Three.js + root UI
-css/style.css       tampilan panel, responsif
-js/config.js        konstanta: jam bursa, kelas aset, unlock, leverage, kode
-js/market.js        mesin harga, candle, berita, earnings, IPO, meme coin, regime
-js/trading.js       portofolio: order, posisi, TP/SL, likuidasi, dividen
-js/progression.js   XP/level, goals, kode, vault, P&L harian, rebirth, leaderboard
-js/bots.js          Algo Desk (bot trading)
-js/scene.js         dunia 3D Three.js
-js/ui.js            antarmuka HTML
-js/main.js          game loop, transisi sesi, simpan/muat
+index.html                 entry Vite
+src/main.tsx               mount React
+src/App.tsx                layout + event game → toast/modal
+src/engine/                mesin simulasi (TypeScript murni, tanpa React/DOM)
+  config.ts                konstanta: jam bursa, kelas aset, unlock, leverage, kode
+  market.ts                harga, candle, berita, earnings, IPO, meme coin, regime
+  trading.ts               portofolio: order, posisi, TP/SL, likuidasi, dividen
+  progression.ts           XP/level, goals, kode, vault, P&L harian, rebirth, leaderboard
+  bots.ts                  Algo Desk (bot trading)
+  game.ts                  game loop, transisi sesi, simpan/muat, langganan untuk React
+src/world/World.ts         dunia 3D Three.js
+src/components/            komponen React (TopBar, Watchlist, Ticket, BottomPanel, Modal, Toasts)
+src/state/                 store UI (zustand) + hook useGame
+src/solana/                provider wallet Solana (Phantom, Backpack, Solflare, dll.)
 ```
+
+Mode **📝 Paper** = game simulasi saat ini. Tombol **🔗 Real** dan tombol wallet sudah ada sebagai persiapan trading on-chain di Solana (belum aktif).
 
 > Proyek fan-made untuk belajar; bukan produk resmi Roblox atau Summit Productions.

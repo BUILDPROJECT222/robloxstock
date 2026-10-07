@@ -1,5 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
+/* Blox Stock Exchange 3D — UI styles */
+
 :root {
   --bg: #070b16;
   --panel: rgba(12, 17, 33, 0.88);
@@ -97,6 +99,15 @@ input:focus, select:focus { border-color: var(--accent); }
 .clock { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-family: var(--mono); font-size: 13px; white-space: nowrap; }
 .speed { display: flex; gap: 3px; }
 .speed button { padding: 3px 8px; font-size: 12px; }
+.mode { display: flex; gap: 3px; padding: 3px; border-radius: 12px; background: #0b1122; border: 2px solid var(--line); }
+.mode button { padding: 3px 9px; font-size: 12px; border: none; background: transparent; }
+.mode button.active { background: #ffd54f; color: #111; }
+.mode button small { font-size: 9px; text-transform: uppercase; color: var(--pulse); margin-left: 2px; }
+.mode button.active small { color: #111; }
+.cam { align-items: center; }
+.wallet-adapter-button { height: 34px; padding: 0 12px; font-family: var(--font); font-size: 13px; border-radius: 10px; }
+.wallet-adapter-button-trigger { background: linear-gradient(#9945ff, #6b2bd6); }
+.wallet-adapter-button-start-icon { width: 18px; height: 18px; }
 .stat { display: flex; flex-direction: column; line-height: 1.1; white-space: nowrap; }
 .stat small { font-size: 11px; }
 .stat b { font-family: var(--mono); font-size: 16px; }
@@ -177,8 +188,8 @@ input:focus, select:focus { border-color: var(--accent); }
 table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
 th { text-align: left; color: var(--muted); font-weight: 400; position: sticky; top: 0; background: #0e1427; padding: 4px 6px; font-family: var(--font); }
 td { padding: 4px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
-tr[data-sel] { cursor: pointer; }
-tr[data-sel]:hover td { background: rgba(61, 139, 255, 0.08); }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: rgba(61, 139, 255, 0.08); }
 tr.danger td { background: rgba(255, 23, 68, 0.12); animation: blink 0.8s infinite alternate; }
 @keyframes blink { to { background: rgba(255, 23, 68, 0.25); } }
 tr.me td { background: rgba(255, 213, 79, 0.15); color: var(--gold); font-weight: 700; }
@@ -190,7 +201,7 @@ tr.me td { background: rgba(255, 213, 79, 0.15); color: var(--gold); font-weight
 .nitem { padding: 5px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border-left: 3px solid #556; }
 .nitem.up { border-left-color: var(--up); }
 .nitem.down { border-left-color: var(--down); }
-.nitem[data-sel] { cursor: pointer; }
+.nitem.clickable { cursor: pointer; }
 .ntag { font-size: 10px; text-transform: uppercase; background: #26324f; border-radius: 6px; padding: 0 5px; margin-right: 4px; }
 
 .cal-wrap, .rew { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; }
@@ -254,7 +265,7 @@ h4 { margin: 2px 0 6px; color: var(--gold); font-weight: 600; }
   #ui { position: static; pointer-events: auto; padding: 8px; padding-top: 46vh; display: flex; flex-direction: column; gap: 8px; }
   .panel { position: static; width: auto !important; height: auto; }
   #topbar { position: fixed; top: 6px; left: 6px; right: 6px; height: auto; flex-wrap: wrap; gap: 8px 12px; padding: 6px 10px; z-index: 10; }
-  .brand, .cam { display: none; }
+  .brand, .cam > button { display: none; }
   #left { max-height: 300px; }
   #bottom { height: 360px; order: 3; }
   #right { order: 2; overflow: visible; }

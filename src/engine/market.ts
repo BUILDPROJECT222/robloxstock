@@ -4,12 +4,25 @@
 // round-number "magnets", and news impact released gradually
 // (news follow-through).
 
-import { gauss, rand, randInt, pick, clamp, uid } from './util.js';
-import { ASSET_CLASSES, CANDLE_TICKS, MAX_CANDLES, SESSION_OPEN, SESSION_CLOSE } from './config.js';
+import { gauss, rand, randInt, pick, clamp, uid } from './util';
+import { ASSET_CLASSES, CANDLE_TICKS, MAX_CANDLES, SESSION_OPEN, SESSION_CLOSE } from './config';
+import type { Asset, AssetClass, Clock, NewsItem, Regime } from './types';
 
-export const SECTORS = ['Tech', 'Gaming', 'Energy', 'Finance', 'Health', 'Retail'];
+interface AssetDef {
+  sym: string;
+  name: string;
+  sector?: string;
+  price: number;
+  vol?: number;
+  beta?: number;
+  drift?: number;
+  div?: number;
+}
 
-const STOCK_DEFS = [
+export const SECTORS = ['Tech', 'Gaming', 'Energy', 'Finance', 'Health', 'Retail'] as const;
+export type Sector = (typeof SECTORS)[number];
+
+const STOCK_DEFS: AssetDef[] = [
   { sym: 'BLOX', name: 'Bloxcorp Interactive', sector: 'Gaming',  price: 142,  vol: 0.00108, beta: 1.2, div: 0 },
   { sym: 'OBBY', name: 'Obby Dynamics',        sector: 'Gaming',  price: 61,   vol: 0.00144, beta: 1.4, div: 0 },
   { sym: 'TYCN', name: 'Tycoon Holdings',      sector: 'Finance', price: 310,  vol: 0.00078, beta: 1.0, div: 0.002 },
@@ -24,25 +37,25 @@ const STOCK_DEFS = [
   { sym: 'PIZZ', name: 'Pizza Place Co.',      sector: 'Retail',  price: 34,   vol: 0.00096, beta: 0.8, div: 0.0025 },
 ];
 
-const ETF_DEFS = [
+const ETF_DEFS: { sym: string; name: string; sector: string; filter: (a: Asset) => boolean; div?: number }[] = [
   { sym: 'BLX100', name: 'Blox 100 Index ETF', sector: 'ETF', filter: () => true },
   { sym: 'TECHX',  name: 'Tech & Gaming ETF',  sector: 'ETF', filter: (a) => a.sector === 'Tech' || a.sector === 'Gaming' },
   { sym: 'YIELD',  name: 'Dividend Income ETF', sector: 'ETF', filter: (a) => a.div > 0, div: 0.002 },
 ];
 
-const CRYPTO_DEFS = [
+const CRYPTO_DEFS: AssetDef[] = [
   { sym: 'BTX',  name: 'Blockcoin',  price: 64200, vol: 0.0012, beta: 1.3 },
   { sym: 'ETHB', name: 'Etherblox',  price: 3210,  vol: 0.0015, beta: 1.5 },
   { sym: 'SOLO', name: 'Solo Chain', price: 146,   vol: 0.0021, beta: 1.8 },
 ];
 
-const FUTURE_DEFS = [
+const FUTURE_DEFS: AssetDef[] = [
   { sym: 'BX1!',   name: 'Blox 100 Futures', price: 0,    vol: 0,      beta: 1 },
   { sym: 'OIL1!',  name: 'Crude Oil Futures', price: 78.4, vol: 0.0007, beta: 0.4 },
   { sym: 'GOLD1!', name: 'Gold Futures',      price: 2380, vol: 0.0003, beta: -0.3 },
 ];
 
-const FOREX_DEFS = [
+const FOREX_DEFS: AssetDef[] = [
   { sym: 'EURUSD', name: 'Euro / Dollar',   price: 1.0842, vol: 0.00014 },
   { sym: 'USDJPY', name: 'Dollar / Yen',    price: 151.2,  vol: 0.00017 },
   { sym: 'GBPUSD', name: 'Pound / Dollar',  price: 1.2711, vol: 0.00015 },
@@ -112,20 +125,20 @@ const NEWS = {
   ],
 };
 
-const fill = (tpl, a) => tpl.replace('{name}', a.name || '').replace('{sym}', a.sym || '').replace('{sector}', a.sector || '');
+const fill = (tpl: string, a: { name?: string; sym?: string; sector?: string }) => tpl.replace('{name}', a.name || '').replace('{sym}', a.sym || '').replace('{sector}', a.sector || '');
 
-function sessionMult(minute) {
+function sessionMult(minute: number) {
   const t = clamp((minute - SESSION_OPEN) / (SESSION_CLOSE - SESSION_OPEN), 0, 1);
   const u = 2 * t - 1;
   return 0.55 + 1.6 * u * u; // U-shape: busy at the open & close, quiet at lunch
 }
 
-function roundStep(p) {
+function roundStep(p: number) {
   const mag = Math.pow(10, Math.floor(Math.log10(Math.max(p, 1e-9))));
   return mag; // e.g. 142 -> 100, 64200 -> 10000
 }
 
-function makeAsset(def, cls) {
+function makeAsset(def: AssetDef, cls: AssetClass): Asset {
   const p = def.price;
   return {
     sym: def.sym, name: def.name, cls, sector: def.sector || ASSET_CLASSES[cls].label,
@@ -137,34 +150,62 @@ function makeAsset(def, cls) {
   };
 }
 
+export interface Dividend {
+  sym: string;
+  rate: number;
+}
+
+export interface MarketEvent {
+  day: number;
+  type: 'Earnings' | 'IPO';
+  sym: string;
+}
+
+interface IpoPlan {
+  sym: string;
+  name: string;
+  sector: string;
+  day: number;
+}
+
+type MarketEvents = {
+  listing: Asset;
+  delist: Asset;
+  rug: Asset;
+  news: NewsItem;
+};
+
 export class Market {
-  constructor() {
-    this.assets = new Map();
-    this.regime = { type: 'bull', daysLeft: 4 };
-    this.marketPending = 0;
-    this.sectorPending = Object.fromEntries(SECTORS.map((s) => [s, 0]));
-    this.overnight = 0;
-    this.basis = 0.0008;
-    this.news = [];
-    this.ipoQueue = [];
-    this.listeners = {};
-    this.lastMarketRet = 0;
+  assets = new Map<string, Asset>();
+  regime: { type: Regime; daysLeft: number } = { type: 'bull', daysLeft: 4 };
+  marketPending = 0;
+  sectorPending = Object.fromEntries(SECTORS.map((s) => [s, 0])) as Record<Sector, number>;
+  overnight = 0;
+  basis = 0.0008;
+  news: NewsItem[] = [];
+  ipoQueue: IpoPlan[] = [];
+  lastMarketRet = 0;
+  clockRef: Clock | null = null;
+  private listeners: Record<string, ((d: never) => void)[]> = {};
+
+  on<K extends keyof MarketEvents>(evt: K, fn: (d: MarketEvents[K]) => void) {
+    (this.listeners[evt] ||= []).push(fn);
+  }
+  emit<K extends keyof MarketEvents>(evt: K, data: MarketEvents[K]) {
+    (this.listeners[evt] || []).forEach((fn) => (fn as (d: MarketEvents[K]) => void)(data));
   }
 
-  on(evt, fn) { (this.listeners[evt] ||= []).push(fn); }
-  emit(evt, data) { (this.listeners[evt] || []).forEach((fn) => fn(data)); }
-
   get list() { return [...this.assets.values()]; }
-  get(sym) { return this.assets.get(sym); }
+  get(sym: string) { return this.assets.get(sym); }
   stocks() { return this.list.filter((a) => a.cls === 'stock'); }
 
-  isTradable(a, open) {
+  isTradable(a: Asset | undefined, open: boolean) {
     if (!a || !a.alive || a.rugged) return false;
     return ASSET_CLASSES[a.cls].session ? open : true;
   }
 
   // ---------- setup ----------
-  init(day) {
+  init(day: number) {
     STOCK_DEFS.forEach((d) => this.assets.set(d.sym, makeAsset(d, 'stock')));
     for (const a of this.stocks()) a.nextEarnings = day + randInt(1, 6);
     ETF_DEFS.forEach((d) => {
@@ -187,19 +228,19 @@ export class Market {
     for (const a of this.list) { a.dayRef = a.price; a.dayHigh = a.dayLow = a.price; a.dayVolume = 0; }
   }
 
-  etfComponents(sym) {
-    const def = ETF_DEFS.find((d) => d.sym === sym);
+  etfComponents(sym: string) {
+    const def = ETF_DEFS.find((d) => d.sym === sym)!;
     return this.stocks().filter((s) => s.alive && def.filter(s));
   }
 
   syncDerived(reset = false) {
     for (const d of ETF_DEFS) {
-      const etf = this.assets.get(d.sym);
+      const etf = this.assets.get(d.sym)!;
       const comps = this.etfComponents(d.sym);
       if (!comps.length) continue;
       const idx = comps.reduce((s, c) => s + c.price / c.base, 0) / comps.length;
       if (reset || !etf.idxBase) { etf.idxBase = idx; etf.base = etf.price; }
-      etf.price = etf.base * (idx / etf.idxBase);
+      etf.price = etf.base * (idx / etf.idxBase!);
     }
   }
 
@@ -207,7 +248,7 @@ export class Market {
   // so the ETF price doesn't jump.
   rebaseEtfs() {
     for (const d of ETF_DEFS) {
-      const etf = this.assets.get(d.sym);
+      const etf = this.assets.get(d.sym)!;
       const comps = this.etfComponents(d.sym);
       if (!comps.length) continue;
       const idx = comps.reduce((s, c) => s + c.price / c.base, 0) / comps.length;
@@ -215,7 +256,7 @@ export class Market {
     }
   }
 
-  spawnMeme(day, quiet = false) {
+  spawnMeme(day: number, quiet = false) {
     const used = new Set(this.list.map((a) => a.sym));
     const name = MEME_NAMES.filter((n) => !used.has(n));
     if (!name.length) return;
@@ -228,21 +269,20 @@ export class Market {
     this.emit('listing', a);
   }
 
-  rugRisk(a) {
-    const m = a.meme;
+  rugRisk(a: Asset) {
+    const m = a.meme!;
     return clamp(((m.top10 - 25) / 75) * 0.55 + (1 - m.dev / 100) * 0.3 + (m.liq < 20000 ? 0.25 : 0), 0.02, 1);
   }
 
-  pushNews(n) {
-    n.id = uid();
-    n.at = this.clockRef ? { ...this.clockRef } : null;
-    this.news.unshift(n);
+  pushNews(n: Omit<NewsItem, 'id' | 'at'>) {
+    const item: NewsItem = { ...n, id: uid(), at: this.clockRef ? { ...this.clockRef } : null };
+    this.news.unshift(item);
     if (this.news.length > 80) this.news.pop();
-    this.emit('news', n);
+    this.emit('news', item);
   }
 
   // ---------- per-tick simulation ----------
-  step(clock, open, dt, quiet = false) {
+  step(clock: Clock, open: boolean, dt: number, quiet = false) {
     this.clockRef = clock;
     const sm = open ? sessionMult(clock.minute) : 1;
     const sq = Math.sqrt(dt);
@@ -254,7 +294,7 @@ export class Market {
     this.lastMarketRet = mRet;
     if (!open) this.overnight += mRet;
 
-    const sRet = {};
+    const sRet = {} as Record<string, number>;
     for (const s of SECTORS) {
       const rel = this.sectorPending[s] * 0.12;
       this.sectorPending[s] -= rel;
@@ -288,17 +328,20 @@ export class Market {
       if (Math.abs(z) > 2.4) a.volState = Math.min(4, a.volState + 0.35);
       a.price = Math.max(a.price * Math.exp(ret), 1e-7);
 
-      if (a.meme && !quiet) this.memeStep(a, clock);
+      if (a.meme && !quiet) this.memeStep(a);
       this.updateCandle(a, a.price, (0.5 + Math.abs(z)) * sm);
     }
 
     // ETFs & index futures (derived)
     if (open) {
       this.syncDerived();
-      for (const d of ETF_DEFS) this.updateCandle(this.assets.get(d.sym), this.assets.get(d.sym).price, sm);
+      for (const d of ETF_DEFS) {
+        const etf = this.assets.get(d.sym)!;
+        this.updateCandle(etf, etf.price, sm);
+      }
     }
-    const bx = this.assets.get('BX1!');
-    const idx = this.assets.get('BLX100');
+    const bx = this.assets.get('BX1!')!;
+    const idx = this.assets.get('BLX100')!;
     this.basis += (0.0008 - this.basis) * 0.02 + gauss() * 0.00004;
     bx.price = idx.price * Math.exp(this.overnight) * (1 + this.basis);
     this.updateCandle(bx, bx.price, sm);
@@ -306,7 +349,7 @@ export class Market {
     if (!quiet) this.randomEvents(clock, open);
   }
 
-  updateCandle(a, p, volUnits) {
+  updateCandle(a: Asset, p: number, volUnits: number) {
     const v = volUnits * (1 + Math.random());
     if (!a.cur) a.cur = { o: p, h: p, l: p, c: p, v: 0 };
     a.cur.h = Math.max(a.cur.h, p);
@@ -324,8 +367,8 @@ export class Market {
     }
   }
 
-  memeStep(a, clock) {
-    const m = a.meme;
+  memeStep(a: Asset) {
+    const m = a.meme!;
     m.dev = clamp(m.dev + gauss() * 1.2, 0, 100);
     m.top10 = clamp(m.top10 + gauss() * 0.6, 5, 98);
     m.liq = Math.max(500, m.liq * (1 + gauss() * 0.01) * (a.price / (a.prevP || a.price)));
@@ -347,7 +390,7 @@ export class Market {
     }
   }
 
-  randomEvents(clock, open) {
+  randomEvents(clock: Clock, open: boolean) {
     // company / sector news while the exchange is open
     if (open && Math.random() < 1 / 45) {
       const r = Math.random();
@@ -390,8 +433,8 @@ export class Market {
   }
 
   // ---------- session transitions ----------
-  onSessionOpen(day) {
-    const gaps = [];
+  onSessionOpen(day: number) {
+    const gaps: string[] = [];
     // today's IPOs
     for (const ipo of this.ipoQueue.filter((q) => q.day === day)) {
       const a = makeAsset({ ...ipo, price: Math.round(rand(12, 90)), vol: rand(0.0015, 0.0025), beta: rand(1, 1.6) }, 'stock');
@@ -427,8 +470,8 @@ export class Market {
     return gaps;
   }
 
-  onSessionClose(day) {
-    const dividends = [];
+  onSessionClose(day: number) {
+    const dividends: Dividend[] = [];
     for (const a of this.list) {
       if (a.div > 0 && (a.cls === 'stock' || a.cls === 'etf')) dividends.push({ sym: a.sym, rate: a.div });
     }
@@ -436,7 +479,7 @@ export class Market {
 
     if (--this.regime.daysLeft <= 0) {
       const r = Math.random();
-      const type = r < 0.45 ? 'bull' : r < 0.75 ? 'sideways' : 'bear';
+      const type: Regime = r < 0.45 ? 'bull' : r < 0.75 ? 'sideways' : 'bear';
       this.regime = { type, daysLeft: randInt(3, 7) };
       const label = { bull: '🐂 BULL MARKET', bear: '🐻 BEAR MARKET', sideways: '😴 SIDEWAYS market' }[type];
       this.pushNews({ text: `Analysts: the market is entering a ${label} phase`, impact: type === 'bull' ? 1 : type === 'bear' ? -1 : 0, tag: 'macro' });
@@ -454,8 +497,8 @@ export class Market {
     return dividends;
   }
 
-  upcoming(day) {
-    const ev = [];
+  upcoming(day: number) {
+    const ev: MarketEvent[] = [];
     for (const a of this.stocks()) if (a.nextEarnings) ev.push({ day: a.nextEarnings, type: 'Earnings', sym: a.sym });
     for (const q of this.ipoQueue) ev.push({ day: q.day, type: 'IPO', sym: q.sym });
     return ev.filter((e) => e.day >= day).sort((a, b) => a.day - b.day).slice(0, 12);
@@ -470,7 +513,7 @@ export class Market {
     };
   }
 
-  restore(s) {
+  restore(s: ReturnType<Market['serialize']> & { lang?: string }) {
     this.regime = s.regime; this.overnight = s.overnight; this.basis = s.basis;
     this.ipoQueue = s.ipoQueue || [];
     // saves from older versions stored news in another language: drop them

@@ -2,33 +2,60 @@
 // Bots can be upgraded: speed (how often they decide),
 // expertise (cheaper fees, trend filter, trailing stop) and slot count.
 
-import { ASSET_CLASSES } from './config.js';
-import { ema, rsi, uid } from './util.js';
+import { ASSET_CLASSES } from './config';
+import { ema, rsi, uid } from './util';
+import type { Asset, Result } from './types';
+import type { Game } from './game';
 
-export const STRATEGIES = {
+export type Strategy = 'momentum' | 'meanrev' | 'breakout';
+export type UpgradeKind = 'speed' | 'expertise' | 'slots';
+
+export const STRATEGIES: Record<Strategy, { label: string; desc: string }> = {
   momentum: { label: 'Momentum', desc: 'EMA 8 vs EMA 21: ride the trend' },
-  meanrev:  { label: 'Mean Reversion', desc: 'RSI 14: buy oversold (<30), sell overbought (>70)' },
+  meanrev: { label: 'Mean Reversion', desc: 'RSI 14: buy oversold (<30), sell overbought (>70)' },
   breakout: { label: 'Breakout', desc: 'Break of 20-candle high/low → follow it' },
 };
+
+export interface Bot {
+  id: string;
+  strategy: Strategy;
+  sym: string;
+  cash: number;
+  alloc: number;
+  pos: -1 | 0 | 1;
+  qty: number;
+  entry: number;
+  peak: number;
+  cool: number;
+  trades: number;
+  wins: number;
+  realized: number;
+  log: string[];
+}
 
 const SPEED_TICKS = [0, 25, 18, 12, 8, 5];
 const MAX_UP = 5;
 
 export class BotDesk {
-  constructor(game) {
-    this.game = game;
+  bots: Bot[] = [];
+  up: Record<UpgradeKind, number> = { speed: 1, expertise: 1, slots: 1 };
+
+  constructor(private game: Game) {}
+
+  get market() { return this.game.market; }
+  slotCount() { return this.up.slots; }
+
+  reset() {
     this.bots = [];
     this.up = { speed: 1, expertise: 1, slots: 1 };
   }
 
-  get market() { return this.game.market; }
-  slotCount() { return this.up.slots; }
-  upgradeCost(kind) {
+  upgradeCost(kind: UpgradeKind) {
     const lvl = this.up[kind];
     if (kind === 'slots') return lvl >= 4 ? null : 15000 * Math.pow(4, lvl - 1);
     return lvl >= MAX_UP ? null : 5000 * Math.pow(3, lvl - 1);
   }
-  upgrade(kind) {
+  upgrade(kind: UpgradeKind): Result {
     const cost = this.upgradeCost(kind);
     if (cost == null) return { ok: false, msg: 'Already maxed out' };
     if (this.game.portfolio.cash < cost) return { ok: false, msg: 'Insufficient balance' };
@@ -37,14 +64,14 @@ export class BotDesk {
     return { ok: true };
   }
 
-  value(bot) {
+  value(bot: Bot) {
     const a = this.market.get(bot.sym);
     if (!bot.pos || !a) return bot.cash;
     return Math.max(0, bot.cash + bot.pos * (a.price - bot.entry) * bot.qty);
   }
   totalValue() { return this.bots.reduce((s, b) => s + this.value(b), 0); }
 
-  create({ strategy, sym, alloc }) {
+  create({ strategy, sym, alloc }: { strategy: Strategy; sym: string; alloc: number }): Result {
     const pf = this.game.portfolio;
     if (!this.game.prog.has('algos')) return { ok: false, msg: 'Algo Desk unlocks at Level 10' };
     if (this.bots.length >= this.slotCount()) return { ok: false, msg: 'All bot slots in use — upgrade slots' };
@@ -58,7 +85,7 @@ export class BotDesk {
     return { ok: true };
   }
 
-  remove(id) {
+  remove(id: string) {
     const i = this.bots.findIndex((b) => b.id === id);
     if (i < 0) return;
     const bot = this.bots[i];
@@ -67,22 +94,22 @@ export class BotDesk {
     this.bots.splice(i, 1);
   }
 
-  feeRate(a) { return ASSET_CLASSES[a.cls].fee * (1 - 0.18 * (this.up.expertise - 1)); }
+  feeRate(a: Asset) { return ASSET_CLASSES[a.cls].fee * (1 - 0.18 * (this.up.expertise - 1)); }
 
-  enter(bot, a, dir) {
+  enter(bot: Bot, a: Asset, dir: 1 | -1) {
     const fee = bot.cash * this.feeRate(a);
     bot.cash -= fee;
     bot.pos = dir;
-    bot.entry = a.price * (1 + dir * ASSET_CLASSES[a.cls].spread / 2);
+    bot.entry = a.price * (1 + (dir * ASSET_CLASSES[a.cls].spread) / 2);
     bot.qty = bot.cash / bot.entry;
     bot.peak = a.price;
     bot.realized -= fee;
     this.log(bot, `${dir > 0 ? 'LONG' : 'SHORT'} @ ${a.price.toPrecision(6)}`);
   }
 
-  exit(bot, why) {
+  exit(bot: Bot, why: string) {
     const a = this.market.get(bot.sym);
-    const px = a ? a.price * (1 - bot.pos * ASSET_CLASSES[a.cls].spread / 2) : bot.entry;
+    const px = a ? a.price * (1 - (bot.pos * ASSET_CLASSES[a.cls].spread) / 2) : bot.entry;
     const pnl = bot.pos * (px - bot.entry) * bot.qty;
     const fee = a ? bot.qty * px * this.feeRate(a) : 0;
     bot.cash = Math.max(0, bot.cash + pnl - fee);
@@ -91,35 +118,41 @@ export class BotDesk {
     if (pnl - fee > 0) bot.wins++;
     this.game.prog.addXP(3);
     this.log(bot, `EXIT (${why}) ${pnl - fee >= 0 ? '+' : ''}${(pnl - fee).toFixed(2)}`);
-    bot.pos = 0; bot.qty = 0;
+    bot.pos = 0;
+    bot.qty = 0;
   }
 
-  log(bot, msg) {
+  log(bot: Bot, msg: string) {
     bot.log.unshift(msg);
     if (bot.log.length > 6) bot.log.pop();
   }
 
-  signal(bot, a) {
+  signal(bot: Bot, a: Asset): -1 | 0 | 1 {
     const closes = a.candles.slice(-60).map((c) => c.c);
     closes.push(a.price);
     if (closes.length < 30) return bot.pos;
     let s = bot.pos;
     if (bot.strategy === 'momentum') {
-      const f = ema(closes, 8).at(-1), sl = ema(closes, 21).at(-1);
+      const f = ema(closes, 8).at(-1)!;
+      const sl = ema(closes, 21).at(-1)!;
       const gap = (f - sl) / a.price;
-      if (gap > 0.0008) s = 1; else if (gap < -0.0008) s = -1;
+      if (gap > 0.0008) s = 1;
+      else if (gap < -0.0008) s = -1;
     } else if (bot.strategy === 'meanrev') {
       const r = rsi(closes, 14);
-      if (r < 30) s = 1; else if (r > 70) s = -1;
+      if (r < 30) s = 1;
+      else if (r > 70) s = -1;
       else if ((bot.pos > 0 && r > 52) || (bot.pos < 0 && r < 48)) s = 0;
     } else {
       const look = a.candles.slice(-21, -1);
-      const hi = Math.max(...look.map((c) => c.h)), lo = Math.min(...look.map((c) => c.l));
-      if (a.price > hi) s = 1; else if (a.price < lo) s = -1;
+      const hi = Math.max(...look.map((c) => c.h));
+      const lo = Math.min(...look.map((c) => c.l));
+      if (a.price > hi) s = 1;
+      else if (a.price < lo) s = -1;
     }
     // expertise ≥3: EMA 50 trend filter (avoid fighting the bigger trend)
     if (this.up.expertise >= 3 && s !== 0 && s !== bot.pos) {
-      const trend = ema(closes, 50).at(-1);
+      const trend = ema(closes, 50).at(-1)!;
       if ((s > 0 && a.price < trend * 0.998) || (s < 0 && a.price > trend * 1.002)) s = bot.pos;
     }
     return s;
@@ -132,7 +165,11 @@ export class BotDesk {
       // expertise ≥4: 2% trailing stop
       if (bot.pos && this.up.expertise >= 4) {
         bot.peak = bot.pos > 0 ? Math.max(bot.peak, a.price) : Math.min(bot.peak, a.price);
-        if ((bot.pos > 0 && a.price < bot.peak * 0.98) || (bot.pos < 0 && a.price > bot.peak * 1.02)) { this.exit(bot, 'trail'); bot.cool = SPEED_TICKS[this.up.speed] * 2; continue; }
+        if ((bot.pos > 0 && a.price < bot.peak * 0.98) || (bot.pos < 0 && a.price > bot.peak * 1.02)) {
+          this.exit(bot, 'trail');
+          bot.cool = SPEED_TICKS[this.up.speed] * 2;
+          continue;
+        }
       }
       if (--bot.cool > 0) continue;
       bot.cool = SPEED_TICKS[this.up.speed];
@@ -145,18 +182,19 @@ export class BotDesk {
   }
 
   // Rough simulation while the player is offline ("offline market processing").
-  offline(days) {
+  offline(days: number) {
     let gain = 0;
     for (const bot of this.bots) {
-      const r = Math.pow(1 + 0.0015 * this.up.expertise, days) - 1;
-      const g = bot.cash * r;
-      bot.cash += g; bot.realized += g; gain += g;
+      const g = bot.cash * (Math.pow(1 + 0.0015 * this.up.expertise, days) - 1);
+      bot.cash += g;
+      bot.realized += g;
+      gain += g;
     }
     return gain;
   }
 
   serialize() { return { lang: 'en', bots: this.bots, up: this.up }; }
-  restore(s) {
+  restore(s: { lang?: string; bots?: Bot[]; up?: Partial<Record<UpgradeKind, number>> }) {
     this.bots = s.bots || [];
     if (s.lang !== 'en') for (const b of this.bots) b.log = []; // older saves logged in another language
     this.up = { ...this.up, ...s.up };
