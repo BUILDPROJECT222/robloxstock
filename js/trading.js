@@ -1,5 +1,5 @@
-// Portofolio pemain: order market/limit, long/short, leverage, TP/SL, likuidasi.
-// "Jumlah" yang dimasukkan pemain = modal (margin). Eksposur = modal × leverage.
+// Player portfolio: market/limit orders, long/short, leverage, TP/SL, liquidation.
+// The "amount" the player enters = margin. Exposure = margin × leverage.
 
 import { ASSET_CLASSES, MAINTENANCE } from './config.js';
 import { uid, fmtPrice } from './util.js';
@@ -31,7 +31,7 @@ export class Portfolio {
   unrealized() { return this.positions.reduce((s, p) => s + this.posValue(p) - p.margin, 0); }
 
   liqPrice(entry, dir, lev) {
-    if (lev === 1 && dir === 1) return null; // long tanpa leverage tidak bisa dilikuidasi
+    if (lev === 1 && dir === 1) return null; // an unleveraged long can't be liquidated
     return entry * (1 - dir * (1 - MAINTENANCE) / lev);
   }
 
@@ -51,18 +51,18 @@ export class Portfolio {
   validate(o) {
     const { game } = this;
     const a = this.market.get(o.sym);
-    if (!a || !a.alive) return 'Aset tidak tersedia';
-    if (a.rugged) return 'Aset ini sudah di-rug pull 💀';
-    if (!game.prog.canTrade(a.cls)) return `Terkunci — buka di level ${game.prog.unlockLevel(ASSET_CLASSES[a.cls].unlock)}`;
-    if (o.side === 'short' && !game.prog.has('short')) return 'Short terbuka di Level 3';
-    if (o.leverage > game.prog.maxLeverage()) return `Leverage ${o.leverage}x belum terbuka`;
-    if (a.cls === 'meme' && o.leverage > 1) return 'Meme coin hanya bisa 1x';
-    if (!(o.amount > 0)) return 'Masukkan jumlah modal';
-    if (o.amount < 1) return 'Minimal $1';
+    if (!a || !a.alive) return 'Asset not available';
+    if (a.rugged) return 'This asset got rug pulled 💀';
+    if (!game.prog.canTrade(a.cls)) return `Locked — unlocks at level ${game.prog.unlockLevel(ASSET_CLASSES[a.cls].unlock)}`;
+    if (o.side === 'short' && !game.prog.has('short')) return 'Shorting unlocks at Level 3';
+    if (o.leverage > game.prog.maxLeverage()) return `${o.leverage}x leverage is still locked`;
+    if (a.cls === 'meme' && o.leverage > 1) return 'Meme coins are 1x only';
+    if (!(o.amount > 0)) return 'Enter an amount';
+    if (o.amount < 1) return 'Minimum is $1';
     const pv = this.preview(o);
-    if (pv.cost > this.cash + 1e-9) return 'Saldo tidak cukup';
-    if (o.type === 'limit' && !(o.limit > 0)) return 'Masukkan harga limit';
-    if (o.type === 'market' && !this.market.isTradable(a, game.open)) return 'Bursa saham tutup — pakai order Limit';
+    if (pv.cost > this.cash + 1e-9) return 'Insufficient balance';
+    if (o.type === 'limit' && !(o.limit > 0)) return 'Enter a limit price';
+    if (o.type === 'market' && !this.market.isTradable(a, game.open)) return 'Stock market closed — use a Limit order';
     return null;
   }
 
@@ -79,7 +79,7 @@ export class Portfolio {
     this.cash -= pv.cost;
     const order = { id: uid(), ...o, fee: pv.fee, cls: a.cls, placedAt: { ...this.game.clock } };
     this.orders.push(order);
-    return { ok: true, msg: `Order limit ${o.side.toUpperCase()} ${a.sym} @ ${fmtPrice(o.limit)} dipasang` };
+    return { ok: true, msg: `Order limit ${o.side.toUpperCase()} ${a.sym} @ ${fmtPrice(o.limit)} placed` };
   }
 
   cancelOrder(id) {
@@ -113,11 +113,11 @@ export class Portfolio {
 
   closePosition(id, reason = 'manual', priceOverride = null) {
     const i = this.positions.findIndex((p) => p.id === id);
-    if (i < 0) return { ok: false, msg: 'Posisi tidak ditemukan' };
+    if (i < 0) return { ok: false, msg: 'Position not found' };
     const pos = this.positions[i];
     const a = this.market.get(pos.sym);
     if (reason === 'manual' && (!a || !this.market.isTradable(a, this.game.open))) {
-      return { ok: false, msg: 'Bursa saham tutup — posisi bisa ditutup saat bel pembukaan' };
+      return { ok: false, msg: 'Stock market closed — you can close this position at the opening bell' };
     }
     const spread = ASSET_CLASSES[pos.cls].spread;
     const raw = priceOverride ?? (a ? a.price : pos.lastPrice);
@@ -140,7 +140,7 @@ export class Portfolio {
     return { ok: true, rec };
   }
 
-  // Dipanggil setiap tick: cek likuidasi, TP/SL, dan order limit.
+  // Called every tick: checks liquidation, TP/SL and limit orders.
   update() {
     const { market, game } = this;
     for (const pos of [...this.positions]) {
@@ -163,13 +163,13 @@ export class Portfolio {
         const fill = o.side === 'long' ? Math.min(p, o.limit) : Math.max(p, o.limit);
         this.orders.splice(this.orders.indexOf(o), 1);
         const pos = this.openPosition(a, o, fill, o.fee);
-        game.notify(`✅ Limit terisi: ${o.side.toUpperCase()} ${a.sym} @ ${fmtPrice(fill)}`, 'good');
+        game.notify(`✅ Limit filled: ${o.side.toUpperCase()} ${a.sym} @ ${fmtPrice(fill)}`, 'good');
         game.world?.flash(pos.dir > 0 ? 0x00e676 : 0xff5252);
       }
     }
   }
 
-  // Rug pull: semua posisi & order pada coin tsb ditutup paksa.
+  // Rug pull: every position & order on that coin is force-closed.
   onRug(a) {
     for (const pos of this.positions.filter((p) => p.sym === a.sym)) this.closePosition(pos.id, 'rug', a.price);
     for (const o of this.orders.filter((x) => x.sym === a.sym)) this.cancelOrder(o.id);
@@ -183,7 +183,7 @@ export class Portfolio {
       for (const pos of this.positions.filter((p) => p.sym === sym)) {
         const amt = pos.qty * a.price * rate;
         if (pos.dir > 0) { this.cash += amt; total += amt; }
-        else { pos.margin = Math.max(0, pos.margin - amt); total -= amt; } // short membayar dividen
+        else { pos.margin = Math.max(0, pos.margin - amt); total -= amt; } // shorts pay the dividend
       }
     }
     this.stats.dividends += total;

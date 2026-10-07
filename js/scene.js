@@ -1,6 +1,6 @@
-// Dunia 3D lantai bursa bergaya blocky (Roblox-like) dengan Three.js:
-// layar chart candlestick raksasa, ticker ring LED, heatmap 3D, "Pulse pit"
-// untuk meme coin, patung bull/bear, meja trader, dan NPC blocky.
+// Blocky (Roblox-like) 3D trading floor built with Three.js:
+// giant candlestick screen, LED ticker ring, 3D heatmap, a "Pulse pit"
+// for meme coins, bull/bear statue, trader desks and blocky NPCs.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -121,7 +121,7 @@ export class World {
     this.camera.updateProjectionMatrix();
   }
 
-  // ---------------- bangunan ----------------
+  // ---------------- building ----------------
   buildLights() {
     this.hemi = new THREE.HemisphereLight(0xbfd4ff, 0x20242e, 0.9);
     this.scene.add(this.hemi);
@@ -152,7 +152,7 @@ export class World {
     back.receiveShadow = true;
     this.scene.add(back);
 
-    // jendela kota di dinding samping (berubah siang/malam)
+    // city windows on the side walls (change with day/night)
     this.windowMats = [];
     for (const side of [-1, 1]) {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 32, 72), wallMat);
@@ -167,7 +167,7 @@ export class World {
         this.scene.add(win);
       }
     }
-    // logo besar di dinding
+    // big logo on the wall
     const { ctx, t } = canvasTex(1024, 128);
     const text = 'BLOX STOCK EXCHANGE';
     let size = 92;
@@ -279,7 +279,7 @@ export class World {
         this.scene.add(g);
       }
     }
-    // papan "PULSE PIT"
+    // "PULSE PIT" sign
     const sp = labelSprite(512, 128, [9, 2.25]);
     const { ctx, t } = sp.userData.canvas;
     ctx.font = 'bold 72px "Trebuchet MS", sans-serif';
@@ -369,9 +369,9 @@ export class World {
 
   randomSpot() {
     const zones = [
-      [-34, 34, 2, 24],   // area depan
-      [-38, -16, -16, 0], // dekat pulse pit
-      [16, 21, -16, 10],  // lorong meja
+      [-34, 34, 2, 24],   // front area
+      [-38, -16, -16, 0], // near the pulse pit
+      [16, 21, -16, 10],  // desk aisle
     ];
     const [x0, x1, z0, z1] = pick(zones);
     return new THREE.Vector3(rand(x0, x1), 0, rand(z0, z1));
@@ -386,7 +386,7 @@ export class World {
     this.scene.add(this.partMesh);
   }
 
-  // ---------------- interaksi ----------------
+  // ---------------- interaction ----------------
   setupPicking() {
     const ray = new THREE.Raycaster();
     const v = new THREE.Vector2();
@@ -433,7 +433,7 @@ export class World {
         this.tiles.set(a.sym, { m, label, h: 0.3, lastDraw: -1 });
       });
     }
-    // koin meme
+    // meme coins
     const live = new Set(memes.map((a) => a.sym));
     for (const [sym, c] of this.coins) if (!live.has(sym)) { this.coinGroup.remove(c.g); this.coins.delete(sym); }
     memes.forEach((a) => {
@@ -451,7 +451,7 @@ export class World {
       this.coins.set(a.sym, { g, coin, mat, label, phase: rand(0, 6), fall: 0 });
     });
     this.pickables = [...this.heatGroup.children, ...this.coinGroup.children];
-    // tata ulang koin melingkar
+    // arrange coins in a circle
     let i = 0;
     const n = this.coins.size;
     for (const c of this.coins.values()) {
@@ -595,7 +595,7 @@ export class World {
     const px = (x) => ((x - SCR.x0) / (SCR.x1 - SCR.x0)) * OV_W;
     const py = (y) => ((SCR.y1 - y) / (SCR.y1 - SCR.y0)) * OV_H;
     ctx.clearRect(0, 0, OV_W, OV_H);
-    // grid harga
+    // price grid
     ctx.font = '26px "Courier New", monospace';
     ctx.textBaseline = 'middle';
     for (let i = 0; i <= 5; i++) {
@@ -607,7 +607,7 @@ export class World {
       ctx.fillStyle = '#8fa3cf';
       ctx.fillText(fmtPrice(p), px(CX0 + CW) + 14, y);
     }
-    // garis posisi & order
+    // position & order lines
     const hline = (p, color, text, dash) => {
       if (p == null || p < lo || p > hi) return;
       const y = py(yOf(p));
@@ -624,18 +624,18 @@ export class World {
       hline(p.entry, '#ffd54f', `${p.side.toUpperCase()} ${p.lev}x entry`, false);
       hline(p.tp, '#00e676', 'TP', true);
       hline(p.sl, '#ff9100', 'SL', true);
-      hline(p.liq, '#ff1744', 'LIKUIDASI', true);
+      hline(p.liq, '#ff1744', 'LIQUIDATION', true);
     }
     for (const o of orders) hline(o.limit, '#b388ff', `LIMIT ${o.side.toUpperCase()}`, true);
 
-    // tag harga terkini
+    // current price tag
     const y = py(yOf(a.price));
     ctx.fillStyle = chg >= 0 ? '#00c853' : '#d50000';
     roundRect(ctx, px(CX0 + CW) + 4, y - 22, 190, 44, 8); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = 'bold 28px "Courier New", monospace';
     ctx.fillText(fmtPrice(a.price), px(CX0 + CW) + 14, y);
 
-    // judul
+    // title
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 64px "Trebuchet MS", sans-serif';
     ctx.fillText(a.sym, 40, 80);
@@ -655,9 +655,9 @@ export class World {
       ctx.fillRect(0, 140, OV_W, OV_H - 140);
       ctx.textAlign = 'center';
       ctx.fillStyle = '#ffd54f'; ctx.font = 'bold 96px "Trebuchet MS", sans-serif';
-      ctx.fillText('🔕 BURSA TUTUP', OV_W / 2, OV_H / 2 + 20);
+      ctx.fillText('🔕 MARKET CLOSED', OV_W / 2, OV_H / 2 + 20);
       ctx.font = '36px "Trebuchet MS", sans-serif'; ctx.fillStyle = '#cfd8dc';
-      ctx.fillText('Buka lagi pukul 09:30 — pasang order limit atau trading kripto/futures', OV_W / 2, OV_H / 2 + 80);
+      ctx.fillText('Reopens at 09:30 — place limit orders or trade crypto/futures', OV_W / 2, OV_H / 2 + 80);
       ctx.textAlign = 'left';
     }
     if (a.rugged) {
@@ -669,7 +669,7 @@ export class World {
     t.needsUpdate = true;
   }
 
-  // ---------------- suasana ----------------
+  // ---------------- atmosphere ----------------
   setSession(open, minute, regime) {
     const dayT = clamp((minute - 360) / (1200 - 360), 0, 1); // 06:00..20:00
     const daylight = Math.sin(dayT * Math.PI);
@@ -727,7 +727,7 @@ export class World {
     }
   }
 
-  // ---------------- loop animasi ----------------
+  // ---------------- animation loop ----------------
   frame(dt) {
     this.time += dt;
     const t = this.time;
@@ -803,7 +803,7 @@ export class World {
       }
     }
 
-    // partikel uang
+    // money particles
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
     let k = 0;
     this.particles = this.particles.filter((p) => (p.life -= dt) > 0 && p.p.y > -1);

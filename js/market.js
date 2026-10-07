@@ -1,8 +1,8 @@
-// Mesin pasar: harga, candle, berita, earnings, IPO, meme coin, regime bull/bear.
-// Model harga: random walk log-normal + faktor pasar & sektor, volatilitas
-// berkelompok (volatility clustering), ritme sesi (ramai saat open/close, sepi
-// saat makan siang), "magnet" angka bulat, dan dampak berita yang dilepas
-// bertahap (news follow-through).
+// Market engine: prices, candles, news, earnings, IPOs, meme coins, bull/bear regimes.
+// Price model: log-normal random walk + market & sector factors, volatility
+// clustering, session rhythm (busy at the open/close, quiet at lunch),
+// round-number "magnets", and news impact released gradually
+// (news follow-through).
 
 import { gauss, rand, randInt, pick, clamp, uid } from './util.js';
 import { ASSET_CLASSES, CANDLE_TICKS, MAX_CANDLES, SESSION_OPEN, SESSION_CLOSE } from './config.js';
@@ -67,48 +67,48 @@ const IPO_POOL = [
 
 const NEWS = {
   companyUp: [
-    '{name} meluncurkan produk baru, analis menaikkan target harga',
-    '{name} menang kontrak raksasa senilai miliaran',
-    'Rumor akuisisi: {name} diincar perusahaan besar',
-    '{name} umumkan buyback saham besar-besaran',
-    'Influencer besar pamer posisi di {sym}, retail ikut FOMO',
-    '{name} masuk indeks Blox 100 — dana pasif wajib beli',
+    '{name} launches a new product, analysts raise price targets',
+    '{name} wins a multi-billion dollar contract',
+    'Acquisition rumor: {name} eyed by a big player',
+    '{name} announces a massive share buyback',
+    'Big influencer flexes a {sym} position, retail FOMOs in',
+    '{name} added to the Blox 100 index — passive funds must buy',
   ],
   companyDown: [
-    '{name} kena denda besar dari regulator',
-    'CEO {name} mendadak mengundurkan diri',
-    '{name} menarik kembali (recall) produk unggulannya',
-    'Laporan short-seller menyerang {sym}: "angka tidak masuk akal"',
-    'Server {name} down seharian, pengguna marah',
-    'Analis menurunkan rating {sym} menjadi SELL',
+    '{name} hit with a huge regulatory fine',
+    '{name} CEO resigns unexpectedly',
+    '{name} recalls its flagship product',
+    'Short-seller report targets {sym}: "the numbers don\'t add up"',
+    '{name} servers down all day, users furious',
+    'Analysts downgrade {sym} to SELL',
   ],
   sectorUp: [
-    'Sektor {sector} menguat setelah data permintaan kuat',
-    'Pemerintah beri subsidi besar untuk sektor {sector}',
+    '{sector} sector rallies on strong demand data',
+    'Government announces big subsidies for the {sector} sector',
   ],
   sectorDown: [
-    'Regulasi baru menekan sektor {sector}',
-    'Permintaan di sektor {sector} melambat tajam',
+    'New regulation weighs on the {sector} sector',
+    'Demand in the {sector} sector slows sharply',
   ],
   macroUp: [
-    'Bank sentral memangkas suku bunga 50bps — pasar bersorak',
-    'Inflasi turun lebih cepat dari perkiraan',
-    'Data tenaga kerja solid, ekonomi soft landing',
+    'Central bank cuts rates by 50bps — markets cheer',
+    'Inflation cools faster than expected',
+    'Solid jobs data points to a soft landing',
   ],
   macroDown: [
-    'Inflasi lebih panas dari perkiraan, yield melonjak',
-    'Bank sentral memberi sinyal hawkish',
-    'Ketegangan geopolitik memicu aksi jual global',
+    'Inflation runs hotter than expected, yields spike',
+    'Central bank signals a hawkish stance',
+    'Geopolitical tension triggers a global sell-off',
   ],
   cryptoUp: [
-    'ETF spot {name} disetujui regulator',
-    'Whale memborong {sym} dalam jumlah besar',
-    'Exchange besar listing {sym} dengan pasangan baru',
+    'Spot {name} ETF approved by regulators',
+    'Whale scoops up a huge amount of {sym}',
+    'Major exchange lists new {sym} trading pairs',
   ],
   cryptoDown: [
-    'Exchange besar diretas, {sym} anjlok',
-    'Whale memindahkan {sym} ke exchange — sinyal jual?',
-    'Regulator mengancam larangan staking {sym}',
+    'Major exchange hacked, {sym} plunges',
+    'Whale moves {sym} to an exchange — sell signal?',
+    'Regulators threaten a {sym} staking ban',
   ],
 };
 
@@ -117,12 +117,12 @@ const fill = (tpl, a) => tpl.replace('{name}', a.name || '').replace('{sym}', a.
 function sessionMult(minute) {
   const t = clamp((minute - SESSION_OPEN) / (SESSION_CLOSE - SESSION_OPEN), 0, 1);
   const u = 2 * t - 1;
-  return 0.55 + 1.6 * u * u; // U-shape: ramai di open & close, sepi siang
+  return 0.55 + 1.6 * u * u; // U-shape: busy at the open & close, quiet at lunch
 }
 
 function roundStep(p) {
   const mag = Math.pow(10, Math.floor(Math.log10(Math.max(p, 1e-9))));
-  return mag; // contoh: 142 -> 100, 64200 -> 10000
+  return mag; // e.g. 142 -> 100, 64200 -> 10000
 }
 
 function makeAsset(def, cls) {
@@ -178,7 +178,7 @@ export class Market {
     for (let i = 0; i < 4; i++) this.spawnMeme(day, true);
     this.syncDerived(true);
 
-    // Isi histori chart supaya tidak kosong saat mulai.
+    // Pre-fill chart history so it isn't empty at start.
     const fakeClock = { day, minute: SESSION_OPEN };
     for (let i = 0; i < 110 * CANDLE_TICKS; i++) {
       fakeClock.minute = SESSION_OPEN + (i % (SESSION_CLOSE - SESSION_OPEN));
@@ -203,8 +203,8 @@ export class Market {
     }
   }
 
-  // Saat komponen ETF berubah (IPO / delisting) indeks dikalibrasi ulang
-  // supaya harga ETF tidak melompat.
+  // When ETF components change (IPO / delisting) the index is re-based
+  // so the ETF price doesn't jump.
   rebaseEtfs() {
     for (const d of ETF_DEFS) {
       const etf = this.assets.get(d.sym);
@@ -224,7 +224,7 @@ export class Market {
     a.meme = { top10: rand(15, 85), dev: rand(5, 95), liq: rand(4000, 120000), holders: randInt(80, 4000) };
     a.listed = day;
     this.assets.set(sym, a);
-    if (!quiet) this.pushNews({ text: `🚀 Meme coin baru diluncurkan di Pulse: $${sym}`, sym, impact: 0, tag: 'pulse' });
+    if (!quiet) this.pushNews({ text: `🚀 New meme coin launched on Pulse: $${sym}`, sym, impact: 0, tag: 'pulse' });
     this.emit('listing', a);
   }
 
@@ -241,7 +241,7 @@ export class Market {
     this.emit('news', n);
   }
 
-  // ---------- simulasi per tick ----------
+  // ---------- per-tick simulation ----------
   step(clock, open, dt, quiet = false) {
     this.clockRef = clock;
     const sm = open ? sessionMult(clock.minute) : 1;
@@ -272,14 +272,14 @@ export class Market {
       a.volState = 1 + (a.volState - 1) * 0.96;
       const sigma = a.vol * (cls.session ? sm : 1) * a.volState * sq;
       let z = gauss();
-      if (Math.random() < 0.003) z *= 3.5; // ekor gemuk
+      if (Math.random() < 0.003) z *= 3.5; // fat tails
       let ret = a.drift * dt + rel + z * sigma;
       if (a.cls === 'stock') ret += a.beta * mRet + (sRet[a.sector] || 0);
       else if (a.cls === 'crypto' || a.cls === 'meme') ret += a.beta * mRet;
       else if (a.sym === 'GOLD1!') ret += -0.3 * mRet;
       else if (a.sym === 'OIL1!') ret += 0.6 * sRet.Energy;
 
-      // likuiditas di sekitar angka bulat
+      // liquidity around round numbers
       const st = roundStep(a.price) / 2;
       const nearest = Math.round(a.price / st) * st;
       const d = (nearest - a.price) / a.price;
@@ -292,7 +292,7 @@ export class Market {
       this.updateCandle(a, a.price, (0.5 + Math.abs(z)) * sm);
     }
 
-    // ETF & futures indeks (turunan)
+    // ETFs & index futures (derived)
     if (open) {
       this.syncDerived();
       for (const d of ETF_DEFS) this.updateCandle(this.assets.get(d.sym), this.assets.get(d.sym).price, sm);
@@ -336,19 +336,19 @@ export class Market {
       a.price *= rand(0.02, 0.09);
       a.rugged = 1;
       this.updateCandle(a, a.price, 20);
-      this.pushNews({ text: `💀 RUG PULL! Dev $${a.sym} kabur membawa likuiditas. Harga -95%`, sym: a.sym, impact: -1, tag: 'pulse' });
+      this.pushNews({ text: `💀 RUG PULL! The $${a.sym} dev ran off with the liquidity. Price -95%`, sym: a.sym, impact: -1, tag: 'pulse' });
       this.emit('rug', a);
     } else if (Math.random() < 0.0012) {
       const boost = rand(0.4, 2.5);
       a.pending += Math.log(1 + boost);
       a.volState = 3;
       m.holders = Math.round(m.holders * 1.5);
-      this.pushNews({ text: `🌕 $${a.sym} viral di TikTok! Pembeli membanjir`, sym: a.sym, impact: 1, tag: 'pulse' });
+      this.pushNews({ text: `🌕 $${a.sym} goes viral on TikTok! Buyers flood in`, sym: a.sym, impact: 1, tag: 'pulse' });
     }
   }
 
   randomEvents(clock, open) {
-    // berita perusahaan / sektor saat bursa buka
+    // company / sector news while the exchange is open
     if (open && Math.random() < 1 / 45) {
       const r = Math.random();
       if (r < 0.62) {
@@ -357,27 +357,27 @@ export class Market {
         const mag = rand(0.01, 0.05);
         a.pending += up ? mag : -mag;
         a.volState = Math.min(4, a.volState + 1.2);
-        this.pushNews({ text: fill(pick(up ? NEWS.companyUp : NEWS.companyDown), a), sym: a.sym, impact: up ? 1 : -1, tag: 'saham' });
+        this.pushNews({ text: fill(pick(up ? NEWS.companyUp : NEWS.companyDown), a), sym: a.sym, impact: up ? 1 : -1, tag: 'stock' });
       } else if (r < 0.88) {
         const sector = pick(SECTORS);
         const up = Math.random() < 0.5;
         this.sectorPending[sector] += (up ? 1 : -1) * rand(0.006, 0.025);
-        this.pushNews({ text: fill(pick(up ? NEWS.sectorUp : NEWS.sectorDown), { sector }), sector, impact: up ? 1 : -1, tag: 'sektor' });
+        this.pushNews({ text: fill(pick(up ? NEWS.sectorUp : NEWS.sectorDown), { sector }), sector, impact: up ? 1 : -1, tag: 'sector' });
       } else {
         const up = Math.random() < 0.5;
         this.marketPending += (up ? 1 : -1) * rand(0.006, 0.02);
-        this.pushNews({ text: pick(up ? NEWS.macroUp : NEWS.macroDown), impact: up ? 1 : -1, tag: 'makro' });
+        this.pushNews({ text: pick(up ? NEWS.macroUp : NEWS.macroDown), impact: up ? 1 : -1, tag: 'macro' });
       }
     }
-    // berita kripto kapan saja
+    // crypto news at any time
     if (Math.random() < 1 / 160) {
       const a = pick(this.list.filter((x) => x.cls === 'crypto'));
       const up = Math.random() < 0.5;
       a.pending += (up ? 1 : -1) * rand(0.015, 0.06);
       a.volState = 3;
-      this.pushNews({ text: fill(pick(up ? NEWS.cryptoUp : NEWS.cryptoDown), a), sym: a.sym, impact: up ? 1 : -1, tag: 'kripto' });
+      this.pushNews({ text: fill(pick(up ? NEWS.cryptoUp : NEWS.cryptoDown), a), sym: a.sym, impact: up ? 1 : -1, tag: 'crypto' });
     }
-    // meme coin baru & delisting
+    // new meme coins & delistings
     const memes = this.list.filter((a) => a.cls === 'meme');
     if (memes.filter((a) => !a.rugged).length < 6 && Math.random() < 1 / 180) this.spawnMeme(clock.day);
     for (const a of memes) {
@@ -389,10 +389,10 @@ export class Market {
     }
   }
 
-  // ---------- transisi sesi ----------
+  // ---------- session transitions ----------
   onSessionOpen(day) {
     const gaps = [];
-    // IPO hari ini
+    // today's IPOs
     for (const ipo of this.ipoQueue.filter((q) => q.day === day)) {
       const a = makeAsset({ ...ipo, price: Math.round(rand(12, 90)), vol: rand(0.0015, 0.0025), beta: rand(1, 1.6) }, 'stock');
       a.nextEarnings = day + randInt(3, 7);
@@ -401,7 +401,7 @@ export class Market {
       a.volState = 3;
       this.assets.set(a.sym, a);
       this.rebaseEtfs();
-      this.pushNews({ text: `🔔 IPO: ${a.name} (${a.sym}) resmi melantai di bursa hari ini!`, sym: a.sym, impact: 1, tag: 'ipo' });
+      this.pushNews({ text: `🔔 IPO: ${a.name} (${a.sym}) starts trading on the exchange today!`, sym: a.sym, impact: 1, tag: 'ipo' });
       this.emit('listing', a);
     }
     this.ipoQueue = this.ipoQueue.filter((q) => q.day !== day);
@@ -414,7 +414,7 @@ export class Market {
         a.volState = 3;
         a.nextEarnings = day + randInt(5, 9);
         this.pushNews({
-          text: `📊 Earnings ${a.sym}: ${surprise >= 0 ? 'melampaui' : 'meleset dari'} estimasi — gap ${(surprise * 100).toFixed(1)}%`,
+          text: `📊 Earnings ${a.sym}: ${surprise >= 0 ? 'beats' : 'misses'} estimates — gap ${(surprise * 100).toFixed(1)}%`,
           sym: a.sym, impact: surprise >= 0 ? 1 : -1, tag: 'earnings',
         });
       }
@@ -423,7 +423,7 @@ export class Market {
     }
     this.overnight = 0;
     this.syncDerived();
-    this.pushNews({ text: `🔔 Bel pembukaan berbunyi — Hari ${day} dimulai`, impact: 0, tag: 'sesi' });
+    this.pushNews({ text: `🔔 Opening bell — Day ${day} begins`, impact: 0, tag: 'session' });
     return gaps;
   }
 
@@ -438,8 +438,8 @@ export class Market {
       const r = Math.random();
       const type = r < 0.45 ? 'bull' : r < 0.75 ? 'sideways' : 'bear';
       this.regime = { type, daysLeft: randInt(3, 7) };
-      const label = { bull: '🐂 BULL MARKET', bear: '🐻 BEAR MARKET', sideways: '😴 pasar SIDEWAYS' }[type];
-      this.pushNews({ text: `Analis: pasar memasuki fase ${label}`, impact: type === 'bull' ? 1 : type === 'bear' ? -1 : 0, tag: 'makro' });
+      const label = { bull: '🐂 BULL MARKET', bear: '🐻 BEAR MARKET', sideways: '😴 SIDEWAYS market' }[type];
+      this.pushNews({ text: `Analysts: the market is entering a ${label} phase`, impact: type === 'bull' ? 1 : type === 'bear' ? -1 : 0, tag: 'macro' });
     }
 
     if (Math.random() < 0.3 && this.stocks().length < 18 && !this.ipoQueue.length) {
@@ -447,10 +447,10 @@ export class Market {
       if (pool.length) {
         const ipo = { ...pick(pool), day: day + randInt(1, 2) };
         this.ipoQueue.push(ipo);
-        this.pushNews({ text: `🗓️ ${ipo.name} (${ipo.sym}) dijadwalkan IPO pada Hari ${ipo.day}`, sym: ipo.sym, impact: 0, tag: 'ipo' });
+        this.pushNews({ text: `🗓️ ${ipo.name} (${ipo.sym}) is scheduled to IPO on Day ${ipo.day}`, sym: ipo.sym, impact: 0, tag: 'ipo' });
       }
     }
-    this.pushNews({ text: `🔕 Bel penutupan — bursa saham tutup. Kripto, futures & forex tetap jalan.`, impact: 0, tag: 'sesi' });
+    this.pushNews({ text: `🔕 Closing bell — the stock market is closed. Crypto, futures & forex keep trading.`, impact: 0, tag: 'session' });
     return dividends;
   }
 
@@ -461,18 +461,20 @@ export class Market {
     return ev.filter((e) => e.day >= day).sort((a, b) => a.day - b.day).slice(0, 12);
   }
 
-  // ---------- simpan / muat ----------
+  // ---------- save / load ----------
   serialize() {
     return {
       regime: this.regime, overnight: this.overnight, basis: this.basis, ipoQueue: this.ipoQueue,
-      news: this.news.slice(0, 30),
+      lang: 'en', news: this.news.slice(0, 30),
       assets: this.list.map((a) => ({ ...a, candles: a.candles.slice(-120) })),
     };
   }
 
   restore(s) {
     this.regime = s.regime; this.overnight = s.overnight; this.basis = s.basis;
-    this.ipoQueue = s.ipoQueue || []; this.news = s.news || [];
+    this.ipoQueue = s.ipoQueue || [];
+    // saves from older versions stored news in another language: drop them
+    this.news = s.lang === 'en' ? s.news || [] : [];
     this.assets.clear();
     for (const a of s.assets) this.assets.set(a.sym, a);
   }

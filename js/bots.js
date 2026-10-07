@@ -1,14 +1,14 @@
-// Algo Desk: bot trading otomatis yang memakai uang tunai sungguhan dari portofolio.
-// Bot bisa di-upgrade: kecepatan (seberapa sering mengambil keputusan),
-// keahlian (fee lebih murah, filter tren, trailing stop) dan jumlah slot.
+// Algo Desk: automated trading bots that use real cash from the portfolio.
+// Bots can be upgraded: speed (how often they decide),
+// expertise (cheaper fees, trend filter, trailing stop) and slot count.
 
 import { ASSET_CLASSES } from './config.js';
 import { ema, rsi, uid } from './util.js';
 
 export const STRATEGIES = {
-  momentum: { label: 'Momentum', desc: 'EMA 8 vs EMA 21: ikut arah tren' },
-  meanrev:  { label: 'Mean Reversion', desc: 'RSI 14: beli oversold (<30), jual overbought (>70)' },
-  breakout: { label: 'Breakout', desc: 'Tembus high/low 20 candle → ikut arah' },
+  momentum: { label: 'Momentum', desc: 'EMA 8 vs EMA 21: ride the trend' },
+  meanrev:  { label: 'Mean Reversion', desc: 'RSI 14: buy oversold (<30), sell overbought (>70)' },
+  breakout: { label: 'Breakout', desc: 'Break of 20-candle high/low → follow it' },
 };
 
 const SPEED_TICKS = [0, 25, 18, 12, 8, 5];
@@ -30,8 +30,8 @@ export class BotDesk {
   }
   upgrade(kind) {
     const cost = this.upgradeCost(kind);
-    if (cost == null) return { ok: false, msg: 'Sudah maksimal' };
-    if (this.game.portfolio.cash < cost) return { ok: false, msg: 'Saldo tidak cukup' };
+    if (cost == null) return { ok: false, msg: 'Already maxed out' };
+    if (this.game.portfolio.cash < cost) return { ok: false, msg: 'Insufficient balance' };
     this.game.portfolio.cash -= cost;
     this.up[kind]++;
     return { ok: true };
@@ -46,13 +46,13 @@ export class BotDesk {
 
   create({ strategy, sym, alloc }) {
     const pf = this.game.portfolio;
-    if (!this.game.prog.has('algos')) return { ok: false, msg: 'Algo Desk terbuka di Level 10' };
-    if (this.bots.length >= this.slotCount()) return { ok: false, msg: 'Slot bot penuh — upgrade slot' };
+    if (!this.game.prog.has('algos')) return { ok: false, msg: 'Algo Desk unlocks at Level 10' };
+    if (this.bots.length >= this.slotCount()) return { ok: false, msg: 'All bot slots in use — upgrade slots' };
     const a = this.market.get(sym);
-    if (!a || a.cls === 'meme') return { ok: false, msg: 'Pilih aset yang valid (bukan meme coin)' };
-    if (!this.game.prog.canTrade(a.cls)) return { ok: false, msg: 'Aset masih terkunci' };
-    if (!(alloc >= 100)) return { ok: false, msg: 'Alokasi minimal $100' };
-    if (alloc > pf.cash) return { ok: false, msg: 'Saldo tidak cukup' };
+    if (!a || a.cls === 'meme') return { ok: false, msg: 'Pick a valid asset (not a meme coin)' };
+    if (!this.game.prog.canTrade(a.cls)) return { ok: false, msg: 'Asset is still locked' };
+    if (!(alloc >= 100)) return { ok: false, msg: 'Minimum allocation is $100' };
+    if (alloc > pf.cash) return { ok: false, msg: 'Insufficient balance' };
     pf.cash -= alloc;
     this.bots.push({ id: uid(), strategy, sym, cash: alloc, alloc, pos: 0, qty: 0, entry: 0, peak: 0, cool: 0, trades: 0, wins: 0, realized: 0, log: [] });
     return { ok: true };
@@ -117,7 +117,7 @@ export class BotDesk {
       const hi = Math.max(...look.map((c) => c.h)), lo = Math.min(...look.map((c) => c.l));
       if (a.price > hi) s = 1; else if (a.price < lo) s = -1;
     }
-    // keahlian ≥3: filter tren EMA 50 (hindari melawan tren besar)
+    // expertise ≥3: EMA 50 trend filter (avoid fighting the bigger trend)
     if (this.up.expertise >= 3 && s !== 0 && s !== bot.pos) {
       const trend = ema(closes, 50).at(-1);
       if ((s > 0 && a.price < trend * 0.998) || (s < 0 && a.price > trend * 1.002)) s = bot.pos;
@@ -129,7 +129,7 @@ export class BotDesk {
     for (const bot of this.bots) {
       const a = this.market.get(bot.sym);
       if (!a || !this.market.isTradable(a, this.game.open)) continue;
-      // keahlian ≥4: trailing stop 2%
+      // expertise ≥4: 2% trailing stop
       if (bot.pos && this.up.expertise >= 4) {
         bot.peak = bot.pos > 0 ? Math.max(bot.peak, a.price) : Math.min(bot.peak, a.price);
         if ((bot.pos > 0 && a.price < bot.peak * 0.98) || (bot.pos < 0 && a.price > bot.peak * 1.02)) { this.exit(bot, 'trail'); bot.cool = SPEED_TICKS[this.up.speed] * 2; continue; }
@@ -139,12 +139,12 @@ export class BotDesk {
       if (bot.cash <= 1) continue;
       const s = this.signal(bot, a);
       if (s === bot.pos) continue;
-      if (bot.pos) this.exit(bot, 'sinyal');
+      if (bot.pos) this.exit(bot, 'signal');
       if (s) this.enter(bot, a, s);
     }
   }
 
-  // Simulasi kasar saat pemain offline ("offline market processing").
+  // Rough simulation while the player is offline ("offline market processing").
   offline(days) {
     let gain = 0;
     for (const bot of this.bots) {
@@ -155,6 +155,10 @@ export class BotDesk {
     return gain;
   }
 
-  serialize() { return { bots: this.bots, up: this.up }; }
-  restore(s) { this.bots = s.bots || []; this.up = { ...this.up, ...s.up }; }
+  serialize() { return { lang: 'en', bots: this.bots, up: this.up }; }
+  restore(s) {
+    this.bots = s.bots || [];
+    if (s.lang !== 'en') for (const b of this.bots) b.log = []; // older saves logged in another language
+    this.up = { ...this.up, ...s.up };
+  }
 }

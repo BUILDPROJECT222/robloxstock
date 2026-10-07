@@ -1,4 +1,4 @@
-// Helper umum: angka acak, format uang/harga, indikator teknikal.
+// Shared helpers: randomness, money/price formatting, technical indicators.
 
 export const rand = (a = 0, b = 1) => a + Math.random() * (b - a);
 export const randInt = (a, b) => Math.floor(rand(a, b + 1));
@@ -6,7 +6,7 @@ export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
-// Distribusi normal standar (Box–Muller).
+// Standard normal distribution (Box–Muller).
 export function gauss() {
   let u = 0, v = 0;
   while (!u) u = Math.random();
@@ -46,7 +46,7 @@ export function fmtClock(minute) {
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
-// ---- Indikator ----
+// ---- Indicators ----
 export function ema(values, period) {
   const out = new Array(values.length);
   const k = 2 / (period + 1);

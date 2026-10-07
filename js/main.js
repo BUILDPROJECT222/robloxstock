@@ -1,4 +1,4 @@
-// Game loop utama: jam bursa, transisi sesi, event, simpan/muat, rebirth.
+// Main game loop: exchange clock, session transitions, events, save/load, rebirth.
 
 import { Market } from './market.js';
 import { Portfolio } from './trading.js';
@@ -40,7 +40,7 @@ class Game {
 
     if (!loaded) {
       this.ui.showHelp(true);
-      // training bonus seperti di RSE 2
+      // training bonus, like in RSE 2
       const m = document.getElementById('modal');
       const giveBonus = () => {
         if (this.bonusGiven) return;
@@ -48,7 +48,7 @@ class Game {
         this.portfolio.cash = START_CASH;
         this.prog.startDay(null);
         this.world.burst(true, 120);
-        this.ui.notify(`💵 Training bonus ${fmtMoney(START_CASH)} masuk! Selamat trading.`, 'good');
+        this.ui.notify(`💵 Training bonus ${fmtMoney(START_CASH)} received! Happy trading.`, 'good');
         this.save();
       };
       m.addEventListener('click', (e) => { if (e.target.closest('button')) giveBonus(); });
@@ -82,7 +82,7 @@ class Game {
       const had = this.portfolio.positions.some((p) => p.sym === a.sym);
       this.portfolio.onRug(a);
       if (had) { this.world.burst(false, 80); this.world.flash(0xff1744); }
-      this.ui.notify(`💀 $${a.sym} kena RUG PULL!`, 'bad');
+      this.ui.notify(`💀 $${a.sym} got RUG PULLED!`, 'bad');
     });
     m.on('listing', () => this.world && this.refreshWorld(true));
     m.on('delist', (a) => {
@@ -92,11 +92,11 @@ class Game {
     m.on('news', (n) => {
       if (!this.ui) return;
       const mine = n.sym && (n.sym === this.selected || this.portfolio.positions.some((p) => p.sym === n.sym));
-      if (mine || n.tag === 'makro' || n.tag === 'ipo') this.ui.notify('📰 ' + n.text, n.impact > 0 ? 'good' : n.impact < 0 ? 'bad' : 'info');
+      if (mine || n.tag === 'macro' || n.tag === 'ipo') this.ui.notify('📰 ' + n.text, n.impact > 0 ? 'good' : n.impact < 0 ? 'bad' : 'info');
     });
   }
 
-  // ---- callback dari portofolio / progresi ----
+  // ---- callbacks from portfolio / progression ----
   onOpen(pos, notional) {
     this.prog.addXP(5 + Math.min(notional / 400, 40));
     this.world?.flash(pos.dir > 0 ? 0x00e676 : 0xff5252);
@@ -105,8 +105,8 @@ class Game {
   onClose(rec) {
     const xp = 10 + Math.min((rec.margin * rec.lev) / 300, 60) + (rec.net > 0 ? 15 : 0);
     this.prog.addXP(xp);
-    const tag = { tp: '🎯 TP', sl: '🛑 SL', liq: '💥 LIKUIDASI', rug: '💀 RUG', manual: '', delist: 'Delist' }[rec.reason] || '';
-    const msg = `${tag} Tutup ${rec.side.toUpperCase()} ${rec.sym}: ${fmtMoney(rec.net, { sign: true })}`;
+    const tag = { tp: '🎯 TP', sl: '🛑 SL', liq: '💥 LIQUIDATED', rug: '💀 RUG', manual: '', delist: 'Delisted' }[rec.reason] || '';
+    const msg = `${tag} Closed ${rec.side.toUpperCase()} ${rec.sym}: ${fmtMoney(rec.net, { sign: true })}`;
     this.ui?.notify(msg.trim(), rec.net >= 0 ? 'good' : 'bad');
     if (rec.reason === 'liq') { this.world.burst(false, 90); this.world.flash(0xff1744); }
     else if (rec.net > 0) this.world.burst(true, Math.min(140, 20 + Math.log10(1 + rec.net) * 25));
@@ -116,9 +116,9 @@ class Game {
     this.world?.burst(true, 150);
     this.world?.flash(0xffd54f);
     if (!this.ui) return;
-    this.ui.notify(`⭐ LEVEL UP! Sekarang Level ${level}`, 'good');
+    this.ui.notify(`⭐ LEVEL UP! You are now Level ${level}`, 'good');
     if (unlocked.length) {
-      this.ui.modal(`<h2>⭐ Level ${level}!</h2><p>Fitur baru terbuka:</p><ul>${unlocked.map((u) => `<li><b>${u}</b></li>`).join('')}</ul>`, [{ label: 'Mantap!', cls: 'primary' }]);
+      this.ui.modal(`<h2>⭐ Level ${level}!</h2><p>New features unlocked:</p><ul>${unlocked.map((u) => `<li><b>${u}</b></li>`).join('')}</ul>`, [{ label: 'Awesome!', cls: 'primary' }]);
     }
     this.ui.renderWatch(true);
     this.ui.syncForm();
@@ -127,7 +127,7 @@ class Game {
 
   notify(msg, kind) { this.ui?.notify(msg, kind); }
 
-  // ---- satu tick simulasi ----
+  // ---- one simulation tick ----
   tick() {
     const c = this.clock;
     let dt;
@@ -152,8 +152,8 @@ class Game {
       const divs = this.market.onSessionClose(c.day);
       const paid = this.portfolio.payDividends(divs);
       const interest = this.prog.payInterest(1);
-      if (paid) this.notify(`💵 Dividen: ${fmtMoney(paid, { sign: true })}`, paid > 0 ? 'good' : 'bad');
-      if (interest > 0.01) this.notify(`🏦 Bunga vault: +${fmtMoney(interest)}`, 'good');
+      if (paid) this.notify(`💵 Dividends: ${fmtMoney(paid, { sign: true })}`, paid > 0 ? 'good' : 'bad');
+      if (interest > 0.01) this.notify(`🏦 Vault interest: +${fmtMoney(interest)}`, 'good');
     }
 
     this.market.step(c, this.open, Math.max(dt, 0.1));
@@ -208,14 +208,14 @@ class Game {
     this.portfolio.reset(START_CASH * (1 + p.rebirths));
     p.startDay(null);
     this.world.burst(true, 250);
-    this.ui.modal(`<h2>♻️ Rebirth ${p.rebirths}!</h2><p>Kamu mulai lagi dengan ${fmtMoney(this.portfolio.cash)} dan bonus permanen XP ×${p.xpMult.toFixed(1)}. Gas lagi!</p>`, [{ label: 'Gas!', cls: 'primary' }]);
+    this.ui.modal(`<h2>♻️ Rebirth ${p.rebirths}!</h2><p>You start over with ${fmtMoney(this.portfolio.cash)} and a permanent XP bonus of ×${p.xpMult.toFixed(1)}. Let's go again!</p>`, [{ label: 'Let\'s go!', cls: 'primary' }]);
     this.ui.renderWatch(true);
     this.ui.syncForm();
     this.ui.openTab(this.ui.bottomTab);
     this.save();
   }
 
-  // ---- simpan / muat ----
+  // ---- save / load ----
   save() {
     if (!this.bonusGiven) return;
     try {
@@ -223,7 +223,7 @@ class Game {
         v: 1, savedAt: Date.now(), clock: this.clock, open: this.open, selected: this.selected, speed: this.speed,
         market: this.market.serialize(), portfolio: this.portfolio.serialize(), prog: this.prog.serialize(), bots: this.bots.serialize(),
       }));
-    } catch (e) { /* storage penuh / diblokir: abaikan */ }
+    } catch (e) { /* storage full / blocked: ignore */ }
   }
 
   load() {
@@ -239,7 +239,7 @@ class Game {
       if (!this.market.get(this.selected)) this.selected = 'BLOX';
       return s;
     } catch (e) {
-      console.warn('Save rusak, mulai baru', e);
+      console.warn('Corrupted save, starting fresh', e);
       return null;
     }
   }
@@ -251,8 +251,8 @@ class Game {
     const interest = this.prog.payInterest(days);
     const botGain = this.bots.offline(days);
     if (interest + botGain < 0.01) return;
-    this.ui.modal(`<h2>👋 Selamat datang kembali!</h2><p>Selama kamu pergi (~${days.toFixed(1)} hari bursa):</p>
-      <ul><li>Bunga vault: <b class="up">+${fmtMoney(interest)}</b></li><li>Hasil bot (offline): <b class="up">+${fmtMoney(botGain)}</b></li></ul>`, [{ label: 'Lanjut trading', cls: 'primary' }]);
+    this.ui.modal(`<h2>👋 Welcome back!</h2><p>While you were away (~${days.toFixed(1)} trading days):</p>
+      <ul><li>Vault interest: <b class="up">+${fmtMoney(interest)}</b></li><li>Bot earnings (offline): <b class="up">+${fmtMoney(botGain)}</b></li></ul>`, [{ label: 'Keep trading', cls: 'primary' }]);
   }
 
   resetSave() {

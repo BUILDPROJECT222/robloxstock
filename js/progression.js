@@ -1,4 +1,4 @@
-// Level/XP, unlock, goals (Rewards), kode redeem, Vault, Rebirth, P&L calendar, leaderboard.
+// Level/XP, unlocks, goals (Rewards), redeem codes, Vault, Rebirth, P&L calendar, leaderboard.
 
 import { UNLOCKS, LEVERAGE_TIERS, ASSET_CLASSES, CODES, REBIRTH_BASE, xpForLevel } from './config.js';
 import { gauss, rand, fmtMoney } from './util.js';
@@ -9,19 +9,19 @@ const NPC_NAMES = [
 ];
 
 export const GOALS = [
-  { id: 'first_trade', label: 'Trade Pertama', desc: 'Buka posisi apa saja', reward: 250, check: (g) => g.portfolio.stats.opens >= 1 },
-  { id: 'first_close', label: 'First Close', desc: 'Tutup posisi pertamamu', reward: 750, check: (g) => g.portfolio.stats.closes >= 1 },
-  { id: 'green', label: 'Hijau!', desc: 'Tutup trade dengan profit', reward: 500, check: (g) => g.portfolio.stats.wins >= 1 },
-  { id: 'trades10', label: 'Trader Aktif', desc: 'Buka 10 posisi', reward: 1500, check: (g) => g.portfolio.stats.opens >= 10 },
-  { id: 'meme', label: 'Degen', desc: 'Trade meme coin di Pulse', reward: 500, check: (g) => g.portfolio.stats.memeTrades >= 1 },
-  { id: 'short', label: 'Bear Gang', desc: 'Buka posisi short', reward: 1000, check: (g) => g.portfolio.stats.shorts >= 1 },
-  { id: 'lev5', label: 'Leveraged', desc: 'Trade dengan leverage ≥ 5x', reward: 2000, check: (g) => g.portfolio.stats.maxLev >= 5 },
-  { id: 'nw10k', label: 'Net Worth $10K', desc: 'Capai net worth $10.000', reward: 1000, check: (g) => g.netWorth() >= 1e4 },
-  { id: 'trades50', label: 'Market Maker', desc: 'Buka 50 posisi', reward: 10000, check: (g) => g.portfolio.stats.opens >= 50 },
-  { id: 'nw100k', label: 'Net Worth $100K', desc: 'Capai net worth $100.000', reward: 10000, check: (g) => g.netWorth() >= 1e5 },
-  { id: 'algo', label: 'Quant', desc: 'Jalankan bot trading pertama', reward: 5000, check: (g) => g.bots.bots.length >= 1 },
-  { id: 'liq', label: 'Pelajaran Mahal', desc: 'Kena likuidasi sekali', reward: 100, check: (g) => g.portfolio.stats.liqs >= 1 },
-  { id: 'nw1m', label: 'Jutawan', desc: 'Capai net worth $1.000.000', reward: 100000, check: (g) => g.netWorth() >= 1e6 },
+  { id: 'first_trade', label: 'First Trade', desc: 'Open any position', reward: 250, check: (g) => g.portfolio.stats.opens >= 1 },
+  { id: 'first_close', label: 'First Close', desc: 'Close your first position', reward: 750, check: (g) => g.portfolio.stats.closes >= 1 },
+  { id: 'green', label: 'In the Green!', desc: 'Close a trade in profit', reward: 500, check: (g) => g.portfolio.stats.wins >= 1 },
+  { id: 'trades10', label: 'Active Trader', desc: 'Open 10 positions', reward: 1500, check: (g) => g.portfolio.stats.opens >= 10 },
+  { id: 'meme', label: 'Degen', desc: 'Trade a meme coin on Pulse', reward: 500, check: (g) => g.portfolio.stats.memeTrades >= 1 },
+  { id: 'short', label: 'Bear Gang', desc: 'Open a short position', reward: 1000, check: (g) => g.portfolio.stats.shorts >= 1 },
+  { id: 'lev5', label: 'Leveraged', desc: 'Trade with ≥ 5x leverage', reward: 2000, check: (g) => g.portfolio.stats.maxLev >= 5 },
+  { id: 'nw10k', label: 'Net Worth $10K', desc: 'Reach a $10,000 net worth', reward: 1000, check: (g) => g.netWorth() >= 1e4 },
+  { id: 'trades50', label: 'Market Maker', desc: 'Open 50 positions', reward: 10000, check: (g) => g.portfolio.stats.opens >= 50 },
+  { id: 'nw100k', label: 'Net Worth $100K', desc: 'Reach a $100,000 net worth', reward: 10000, check: (g) => g.netWorth() >= 1e5 },
+  { id: 'algo', label: 'Quant', desc: 'Launch your first trading bot', reward: 5000, check: (g) => g.bots.bots.length >= 1 },
+  { id: 'liq', label: 'Expensive Lesson', desc: 'Get liquidated once', reward: 100, check: (g) => g.portfolio.stats.liqs >= 1 },
+  { id: 'nw1m', label: 'Millionaire', desc: 'Reach a $1,000,000 net worth', reward: 100000, check: (g) => g.netWorth() >= 1e6 },
 ];
 
 export class Progression {
@@ -57,7 +57,7 @@ export class Progression {
     }
   }
 
-  // ---- uang dari luar (bukan hasil trading) dihitung terpisah untuk P&L ----
+  // ---- outside money (not from trading) is tracked separately for P&L ----
   grant(amount, why) {
     this.game.portfolio.cash += amount;
     this.external += amount;
@@ -81,10 +81,10 @@ export class Progression {
 
   redeem(raw) {
     const code = String(raw || '').trim().toUpperCase();
-    if (!CODES[code]) return { ok: false, msg: 'Kode tidak valid' };
-    if (this.redeemed.includes(code)) return { ok: false, msg: 'Kode sudah dipakai' };
+    if (!CODES[code]) return { ok: false, msg: 'Invalid code' };
+    if (this.redeemed.includes(code)) return { ok: false, msg: 'Code already redeemed' };
     this.redeemed.push(code);
-    this.grant(CODES[code], `Kode ${code}`);
+    this.grant(CODES[code], `Code ${code}`);
     return { ok: true };
   }
 
@@ -108,7 +108,7 @@ export class Progression {
     return i;
   }
 
-  // ---- P&L harian ----
+  // ---- Daily P&L ----
   todayPnl() {
     if (this.dayStartNW == null) return 0;
     return this.game.netWorth() - this.dayStartNW - this.external;
@@ -128,7 +128,7 @@ export class Progression {
     for (const n of this.npcs) n.nw = Math.max(100, n.nw * Math.exp(n.skill / 5 + marketRet * 1.5 + gauss() * 0.0015));
   }
   leaderboard() {
-    const me = { name: 'Kamu', nw: this.game.netWorth(), me: true, rebirths: this.rebirths };
+    const me = { name: 'You', nw: this.game.netWorth(), me: true, rebirths: this.rebirths };
     return [...this.npcs, me].sort((a, b) => b.nw - a.nw);
   }
 
